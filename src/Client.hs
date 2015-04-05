@@ -16,8 +16,8 @@ import qualified Data.Map            as M
 import           Data.Aeson          ((.=),object,encode,decode)
 import qualified System.IO           as IO
 
-import qualified App.Args            as Args
-import           App.Types           as Types
+import           App.Args
+import           App.Messages
 
 botPrefix =  " Bot> "
 userPrefix = "User> "
@@ -27,7 +27,7 @@ application conn = do
 	--fork a thread to write responses back from the bot
 	liftIO $ forkIO $ forever $ do
 		resp <- WS.receiveData conn
-		let maybeMess = decode resp :: Maybe Types.ServerMessage
+		let maybeMess = decode resp :: Maybe ServerMessage
 		T.putStrLn ""
 		case maybeMess of
 			Just message -> T.putStrLn $ botPrefix `T.append` sMessage message
@@ -39,14 +39,14 @@ application conn = do
 	forever $ do
 		T.putStr userPrefix
 		input <- getLine
-		WS.sendTextData conn $ encode $ Types.ClientMessage "James" (T.pack input)
+		WS.sendTextData conn $ encode $ ClientMessage "James" (T.pack input)
 
 
 main = do
 	IO.hSetBuffering IO.stdout IO.NoBuffering
 	putStrLn "Starting Client"
 
-	argMap <- fmap Args.parseKeys getArgs
+	argMap <- fmap parseKeys getArgs
 
 	--parse port number from args
 	let (Just port) = (maybeP >>= readMaybe :: Maybe Int) <|> Just 9090
