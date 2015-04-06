@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
 
 module App.Rules where
 
@@ -16,6 +16,10 @@ import           App.Utility
 --
 buildRules :: BotBrainBuilder
 buildRules = do
+
+    addResponse (Exactly "random number" ) $ do
+        (value :: Double) <- random 
+        writeMessage $ format "Random double: {}" (Only value)
 
     addResponse (RegexpRule "lark.*" ) $ do
         writeMessage "so much lark."

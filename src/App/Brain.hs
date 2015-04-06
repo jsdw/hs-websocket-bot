@@ -12,6 +12,7 @@ import           Control.Monad.State   (State(..), StateT(..), execState, execSt
 import qualified Data.Attoparsec.Text  as P
 import           Control.Concurrent    (MVar,newMVar,modifyMVar_,readMVar)
 import           Text.Regex.TDFA       ((=~))
+import           System.Random         (randomIO,Random(..))
 
 import           App.Messages
 
@@ -55,6 +56,7 @@ instance Default BotBrain where
 
 data BotBrainRule = ParserRule (P.Parser ())
                   | RegexpRule String
+                  | Exactly T.Text
                   | EveryTime
 data BotBrainTime = Unknown
 
@@ -118,6 +120,9 @@ getCount = get >>= liftIO . readMVar . actionState >>= return . bsMessageCount
 getName :: BotBrainActionBuilder T.Text
 getName = get >>= return . cName . actionMessage 
 
+random :: Random a => BotBrainActionBuilder a
+random = liftIO $ randomIO
+
 --
 -- Given a botState and botBrain, generate a reponse
 --
@@ -143,6 +148,7 @@ generateResponse m botState botBrain conn =
                         Left _  -> False
                         Right _ -> True
                     RegexpRule s -> (T.unpack $ cMessage m) =~ s
+                    Exactly s -> s == (cMessage m)
                     EveryTime -> True
 
             --either loop to the next rule or run the
