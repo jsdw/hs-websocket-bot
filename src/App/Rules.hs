@@ -2,14 +2,13 @@
 
 module App.Rules where
 
-import           Prelude                    hiding (log)
+import           Prelude                    hiding (log, print)
+import           Data.Attoparsec.Text
+import qualified Data.Text                  as T
+
 import           App.Brain
 import           App.Messages
-import           Data.Attoparsec.Text
-import           Control.Monad.Trans        (liftIO)
-import qualified Data.Text                  as T
-import           Data.Text                  (append, pack)
-
+import           App.Utility
 
 --
 -- build the brain here. this can include IO responses
@@ -18,14 +17,17 @@ import           Data.Text                  (append, pack)
 buildRules :: BotBrainBuilder
 buildRules = do
 
+    addResponse (RegexpRule "lark.*" ) $ do
+        writeMessage "so much lark."
+
     addResponse (ParserRule $ string "count" >> return ()) $ do
         count <- getCount
-        writeMessage $ "Messages seen: " `append` (pack $ show count)
+        writeMessage $ format "Messages seen: {}" (Only count)
 
     addResponse (ParserRule $ string "hello" >> return ()) $ do
         name <- getName
-        log $ name `append` " said hi"
-        writeMessage $ "Hi " `append` name
+        print "{} said hi\n" (Only name)
+        writeMessage $ format "Hi {}" (Only name)
 
     addResponse EveryTime $ do
         writeMessage "pong!"

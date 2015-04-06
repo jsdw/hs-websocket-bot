@@ -11,6 +11,7 @@ import           Control.Monad.Trans   (liftIO)
 import           Control.Monad.State   (State(..), StateT(..), execState, execStateT, modify, get)
 import qualified Data.Attoparsec.Text  as P
 import           Control.Concurrent    (MVar,newMVar,modifyMVar_,readMVar)
+import           Text.Regex.TDFA       ((=~))
 
 import           App.Messages
 
@@ -52,7 +53,8 @@ instance Default BotBrain where
         spontaneous = []
     }
 
-data BotBrainRule = ParserRule (P.Parser ()) 
+data BotBrainRule = ParserRule (P.Parser ())
+                  | RegexpRule String
                   | EveryTime
 data BotBrainTime = Unknown
 
@@ -116,9 +118,6 @@ getCount = get >>= liftIO . readMVar . actionState >>= return . bsMessageCount
 getName :: BotBrainActionBuilder T.Text
 getName = get >>= return . cName . actionMessage 
 
-log :: T.Text -> BotBrainActionBuilder ()
-log m = liftIO $ T.putStrLn m
-
 --
 -- Given a botState and botBrain, generate a reponse
 --
@@ -143,6 +142,7 @@ generateResponse m botState botBrain conn =
                     ParserRule r -> case P.parseOnly r (cMessage m) of
                         Left _  -> False
                         Right _ -> True
+                    RegexpRule s -> (T.unpack $ cMessage m) =~ s
                     EveryTime -> True
 
             --either loop to the next rule or run the
