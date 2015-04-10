@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module App.Brain where
 
 import qualified Network.WebSockets    as WS

@@ -24,40 +24,40 @@ userPrefix = "User> "
 
 application conn = do
 
-	--fork a thread to write responses back from the bot
-	liftIO $ forkIO $ forever $ do
-		resp <- WS.receiveData conn
-		let maybeMess = decode resp :: Maybe ServerMessage
-		T.putStrLn ""
-		case maybeMess of
-			Just message -> T.putStrLn $ botPrefix `T.append` sMessage message
-			Nothing -> do
-				T.putStrLn $ botPrefix `T.append` "what on earth was that?!"
-		T.putStr userPrefix
+    --fork a thread to write responses back from the bot
+    liftIO $ forkIO $ forever $ do
+        resp <- WS.receiveData conn
+        let maybeMess = decode resp :: Maybe ServerMessage
+        T.putStrLn ""
+        case maybeMess of
+            Just message -> T.putStrLn $ botPrefix `T.append` sMessage message
+            Nothing -> do
+                T.putStrLn $ botPrefix `T.append` "what on earth was that?!"
+        T.putStr userPrefix
 
-	--send data to the bot in a continuous loop	
-	forever $ do
-		T.putStr userPrefix
-		input <- getLine
-		WS.sendTextData conn $ encode $ ClientMessage "James" (T.pack input)
+    --send data to the bot in a continuous loop 
+    forever $ do
+        T.putStr userPrefix
+        input <- getLine
+        WS.sendTextData conn $ encode $ ClientMessage "James" (T.pack input)
 
 
 main = do
-	IO.hSetBuffering IO.stdout IO.NoBuffering
-	putStrLn "Starting Client"
+    IO.hSetBuffering IO.stdout IO.NoBuffering
+    putStrLn "Starting Client"
 
-	argMap <- fmap parseKeys getArgs
+    argMap <- fmap parseKeys getArgs
 
-	--parse port number from args
-	let (Just port) = (maybeP >>= readMaybe :: Maybe Int) <|> Just 9090
-		where maybeP = M.lookup "port" argMap <|> M.lookup "p" argMap
+    --parse port number from args
+    let (Just port) = (maybeP >>= readMaybe :: Maybe Int) <|> Just 9090
+          where maybeP = M.lookup "port" argMap <|> M.lookup "p" argMap
 
-	--parse address from args
-	let (Just address) =
-		M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
+    --parse address from args
+    let (Just address) =
+          M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
 
-	--this runs our app:
-	let runApp = withSocketsDo $ WS.runClient address port "/" application >> return ()
+    --this runs our app:
+    let runApp = withSocketsDo $ WS.runClient address port "/" application >> return ()
 
-	--run our app
-	runApp
+    --run our app
+    runApp

@@ -1,8 +1,8 @@
 module App.Utility (
 
-	format,
-	F.Only(..),
-	F.print
+    format,
+    F.Only(..),
+    F.print
 
 ) where
 

@@ -7,7 +7,6 @@ synopsis:            Web socket bot: server and basic client
 -- description:         
 homepage:            http://unbui.lt
 -- license:             
-license-file:        LICENSE
 author:              James Wilson
 maintainer:          jammyw@gmail.com
 -- copyright:           
@@ -20,12 +19,12 @@ executable server
   main-is:             Server.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8, 
+  build-depends:       base >=4.8 && <4.9, 
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
                        mtl == 2.2.*,
                        network == 2.6.0.*,
-                       containers == 0.5.5.*,
+                       containers == 0.5.6.*,
                        aeson == 0.8.0.*,
                        lens == 4.9.*,
                        aeson-lens == 0.5.0.*,
@@ -45,12 +44,12 @@ executable client
   main-is:             Client.hs
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.7 && <4.8, 
+  build-depends:       base >=4.8 && <4.9, 
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
                        mtl == 2.2.*,
                        network == 2.6.0.*,
-                       containers == 0.5.5.*,
+                       containers == 0.5.6.*,
                        aeson == 0.8.0.*,
                        lens == 4.9.*,
                        aeson-lens == 0.5.0.*,
