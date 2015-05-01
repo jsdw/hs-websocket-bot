@@ -40,4 +40,4 @@ getMaybe err (s:ss) = do
 
 setParam l a = assign (_2.l) a
 
-getMaybeDef err ss d = getMaybe err ss `E.catchError` (\_ -> return d)
+getMaybeDef ss d = getMaybe "" ss `E.catchError` (\_ -> return d)

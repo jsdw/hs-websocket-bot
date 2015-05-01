@@ -24,72 +24,6 @@ import qualified Web.Scotty           as W;
 import           App.Args
 import           App.Messages
 
-chatloop hipchat authParam roomIds otherArgs = do
-
-    --parse port number of the websocket server from args
-    let (Just serverPort) = (maybeP >>= readMaybe :: Maybe Int) <|> Just 9090
-          where maybeP = M.lookup "port" otherArgs <|> M.lookup "p" otherArgs
-
-    --parse address of the websocket server from args
-    let (Just serverAddress) =
-          M.lookup "address" otherArgs <|> M.lookup "a" otherArgs <|> Just "127.0.0.1"
-
-    --parse incoming port number (for hipchat webhooks) from args
-    let (Just incomingPort) =  M.lookup "incoming-port" otherArgs <|> M.lookup "ip" otherArgs <|> Just "8080"
-    let mIncomingAddress =  M.lookup "incoming-address" otherArgs <|> M.lookup "ia" otherArgs <|> Nothing
-
-
-    let localAddress = "http://PUTADDRESSHERE:"++incomingPort
-
-    --kick off a web server to listen for messages
-
-    --register webhook to receive messages for each room we are in
-    forM_ roomIds $ \id -> do
-        postWith authParam (hipchat++"/v2/room/"++(show id)++"/webhook") $
-            toJSON $ object [
-                "url" .= (T.pack localAddress `mappend` "/message" :: T.Text),
-                "event" .= ("room_message" :: T.Text),
-                "name" .= ("messagehook" :: T.Text)
-            ]
-
-
-    --send test message to desired room(s)
-    forM_ roomIds $ \id -> do
-        postWith authParam (hipchat++"/v2/room/"++(show id)++"/message") $
-            toJSON $ object ["message" .= ("Testing" :: T.Text)]
-
-    return ()
-
-
-app hipchat token otherArgs = do
-
-    --parse room to enter if provided
-    let mRoom = M.lookup "room" otherArgs <|> M.lookup "r" otherArgs
-
-    -- extract tuples of (roomid, roomname) from room JSON:
-    let authParam = defaults & param "auth_token" .~ [T.pack token]
-                             & header "Content-Type" .~ ["application/json"]
-    roomResp <- getWith authParam (hipchat++"/v2/room")
-    let rs = roomResp ^.. responseBody 
-                        . key "items" 
-                        . _Array 
-                        . traverse 
-                        . to (\o -> (o ^?! key "id" . _Integral,  o ^?! key "name" . _String) )
-
-    --get list of all roomIds if no room provided, else look for room provided and return that.
-    let roomIds = case mRoom of
-         Nothing -> rs ^.. traverse . _1
-         Just str -> rs ^.. traverse . filtered (\a -> snd a == T.pack str) . _1
-
-    --run the chat loop with the room ids found
-    case roomIds of
-        [] -> putStrLn "must provide a valid room name with --room or -r"
-        _  -> chatloop hipchat authParam roomIds otherArgs
-
-
-
-
--- Handle our params with a little helper monad, below:
 --
 -- lensy param struct
 --
@@ -98,7 +32,8 @@ data Params = Params {
     _hipchatAddress :: T.Text,
     _serverAddress :: T.Text,
     _serverPort :: Int,
-    _thisUrl :: T.Text,
+    _thisAddress :: T.Text,
+    _thisPort :: Int,
     _roomName :: T.Text
 } deriving (Show)
 
@@ -106,16 +41,17 @@ instance Default Params where
     def = Params {
         _hipchatToken = "",
         _hipchatAddress = "",
-        _serverAddress = "",
+        _serverAddress = "127.0.0.1",
         _serverPort = 9090,
-        _thisUrl = "",
+        _thisAddress = "",
+        _thisPort = 8080,
         _roomName = ""
     }
 
 makeLenses ''Params
 
 
-
+main :: IO ()
 main = do
     IO.hSetBuffering IO.stdout IO.NoBuffering
     putStrLn "Starting Client"
@@ -131,8 +67,8 @@ main = do
          setParam hipchatAddress (T.pack ha)
          setParam hipchatToken (T.pack ht)
 
-         sa <- getMaybeDef "must provide websocket server address with --server-address or -sa" ["server-address", "sa"] "127.0.0.1"
-         sp <- getMaybeDef "must provide websocket server address with --server-address or -sa" ["server-port", "sp"] "9090"
+         sa <- getMaybeDef ["server-address", "sa"] "127.0.0.1"
+         sp <- getMaybeDef ["server-port", "sp"] "9090"
 
          let serverPortInt = readMaybe sp
          case serverPortInt of
@@ -141,14 +77,81 @@ main = do
 
          setParam serverAddress (T.pack sa)
          
-         ta <- getMaybe "must provide a hipchat auth token with --this-url or -tu" ["this-url", "tu"]
+         ta <- getMaybe "must provide this address --this-address or -ta" ["this-address", "ta"]
+         tp <- getMaybe "must provide this port --this-port or -tp" ["this-port", "tp"]
 
-         setParam thisUrl (T.pack ta)
+         let thisPortInt = readMaybe tp
+         case thisPortInt of
+            Nothing -> throwError "this port not a valid int"
+            Just p -> setParam thisPort p
+
+         rn <- getMaybe "must provide a room name with --room or -r" ["room", "r"]
+
+         setParam thisAddress (T.pack ta)
+         setParam roomName (T.pack rn)
 
     --print error if we end up with one after extracting params, else
-    --pass params to app
+    --pass params to next stage
     case eParams of
-        Left err -> putStrLn err
-        Right p -> undefined
+        Left err -> putStrLn $ "Error: "++err
+        Right p -> getRooms p
+
+
+getRooms :: Params -> IO ()
+getRooms params = do
+
+    -- extract tuples of (roomid, roomname) from room JSON:
+    let authParam = defaults & param "auth_token" .~ [params^.hipchatToken]
+                             & header "Content-Type" .~ ["application/json"]
+
+    roomResp <- getWith authParam $ T.unpack (params^.roomName) ++ "/v2/room"
+    let rs = roomResp ^.. responseBody 
+                        . key "items" 
+                        . _Array 
+                        . traverse 
+                        . to (\o -> (o ^?! key "id" . _Integral,  o ^?! key "name" . _String) )
+
+    --get list of all roomIds if no room provided, else look for room provided and return that.
+    let roomIds = case params^.roomName of
+         "" -> rs ^.. traverse . _1
+         str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
+
+    --run the chat loop with the room ids found
+    case roomIds of
+        [] -> T.putStrLn $ "room provided is not known: " `mappend` (params^.roomName)
+        _  -> chatloop params roomIds authParam
+
+
+chatloop :: Params -> [Int] -> Options -> IO ()
+chatloop params roomIds authParam = do
+
+    let hipchatAddyStr = T.unpack (params^.hipchatAddress)
+    let thisUrl = (params^.thisAddress) `mappend` (T.pack $ show (params^.thisPort))
+
+    --kick off a web server to listen for messages
+
+
+    --register webhook to receive messages for each room we are in
+    forM_ roomIds $ \id -> do
+        postWith authParam (hipchatAddyStr++"/v2/room/"++(show id)++"/webhook") $
+            toJSON $ object [
+                "url" .= (thisUrl `mappend` "/message"),
+                "event" .= ("room_message" :: T.Text),
+                "name" .= ("messagehook" :: T.Text)
+            ]
+
+
+    --send test message to desired room(s)
+    forM_ roomIds $ \id -> do
+        postWith authParam (hipchatAddyStr++"/v2/room/"++(show id)++"/message") $
+            toJSON $ object ["message" .= ("Testing" :: T.Text)]
 
     return ()
+
+
+
+
+
+
+
+
