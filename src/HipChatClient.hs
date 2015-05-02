@@ -9,10 +9,11 @@ import           Data.Default         (Default, def)
 import           Control.Concurrent 
 import           Control.Applicative  ((<|>),(<$>),(<*>))
 import           Control.Monad.Trans  (liftIO)
-import           Control.Monad        (forever, forM_)
+import           Control.Monad        (forever, forM_, forM)
 import           System.Environment   (getArgs)
 import           Text.Read            (readMaybe)
 import qualified Data.Map             as M
+import           Data.List            (lookup)
 import           Data.Aeson           ((.=),object,encode,decode,toJSON)
 import qualified System.IO            as IO
 
@@ -104,7 +105,7 @@ getRooms params = do
     let authParam = defaults & param "auth_token" .~ [params^.hipchatToken]
                              & header "Content-Type" .~ ["application/json"]
 
-    roomResp <- getWith authParam $ T.unpack (params^.roomName) ++ "/v2/room"
+    roomResp <- getWith authParam $ T.unpack (params^.hipchatAddress) ++ "/v2/room"
     let rs = roomResp ^.. responseBody 
                         . key "items" 
                         . _Array 
@@ -115,6 +116,8 @@ getRooms params = do
     let roomIds = case params^.roomName of
          "" -> rs ^.. traverse . _1
          str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
+
+    putStrLn $ "listening in room IDs: " ++ show roomIds
 
     --run the chat loop with the room ids found
     case roomIds of
@@ -128,10 +131,61 @@ chatloop params roomIds authParam = do
     let hipchatAddyStr = T.unpack (params^.hipchatAddress)
     let thisUrl = (params^.thisAddress) `mappend` (T.pack $ show (params^.thisPort))
 
-    --kick off a web server to listen for messages
+    let serverAddressStr = T.unpack (params^.serverAddress)
+    let serverPortNum = params^.serverPort
 
+    --create a socket connection per room. leave each socket on a loop
+    --messages get from hipchat to server by being put in an mvar. messages
+    roomLinks <- forM roomIds $ \id -> do
+
+        mv <- newEmptyMVar
+        forkIO $ WS.runClient serverAddressStr serverPortNum "/" $ \conn -> do
+
+            let addy = hipchatAddyStr++"/v2/room/"++(show id)++"/message"
+            let postMessage text = do
+                 postWith authParam addy $ toJSON $ object ["message" .= text]
+                 return ()
+
+            --fork a thread to write responses to hipchat from the server
+            liftIO $ forkIO $ forever $ do
+                resp <- WS.receiveData conn
+                liftIO $ case (decode resp :: Maybe ServerMessage) of
+                    Just message -> do
+                        T.putStrLn $ "sending from bot: " `mappend` (sMessage message)
+                        postMessage $ sMessage message
+                    Nothing -> T.putStrLn "Odd json from server!"
+
+            --if the mvar gets filled with a ClientMessage, send to server
+            forever $ do
+                cm <- takeMVar mv
+                WS.sendTextData conn $ encode cm
+
+        return (id,mv)
+
+    --kick off a web server to listen for messages. when they arrive, find
+    --the mvar with matching room ID so that we target the correct socket connection,
+    --and send to the backend. This ensures that responses will go back to the right room.
+    forkIO $ W.scotty (params^.thisPort) $ do
+        W.post "/message" $ do
+            b <- W.body
+
+            let roomId = b ^?! key "room" . key "id" . _Integral
+            let clientMsg = ClientMessage {
+                cName = b ^?! key "item" . key "from" . key "mention_name" . _String,
+                cMessage = b ^?! key "item" . key "message" . key "message" . _String
+            }
+
+            liftIO $ case lookup roomId roomLinks of
+                Just mv -> do
+                    T.putStrLn $ "read from hipchat: " `mappend` (cName clientMsg)
+                    putMVar mv clientMsg
+                Nothing -> putStrLn $ "room ID "++(show roomId)++" is unknown to me"
+
+            W.json ()  
 
     --register webhook to receive messages for each room we are in
+    --this will start data flowing to the web server above, which will in
+    --turn start pushing data into mvars to be sent to our bot server
     forM_ roomIds $ \id -> do
         postWith authParam (hipchatAddyStr++"/v2/room/"++(show id)++"/webhook") $
             toJSON $ object [
@@ -139,14 +193,6 @@ chatloop params roomIds authParam = do
                 "event" .= ("room_message" :: T.Text),
                 "name" .= ("messagehook" :: T.Text)
             ]
-
-
-    --send test message to desired room(s)
-    forM_ roomIds $ \id -> do
-        postWith authParam (hipchatAddyStr++"/v2/room/"++(show id)++"/message") $
-            toJSON $ object ["message" .= ("Testing" :: T.Text)]
-
-    return ()
 
 
 
