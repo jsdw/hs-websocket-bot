@@ -13,9 +13,11 @@ import           Control.Monad        (forever, forM_, forM)
 import           System.Environment   (getArgs)
 import           Text.Read            (readMaybe)
 import qualified Data.Map             as M
-import           Data.List            (lookup)
+import           Data.List            (lookup,any)
 import           Data.Aeson           ((.=),object,encode,decode,toJSON)
 import qualified System.IO            as IO
+
+import qualified Data.ByteString.Lazy.Char8  as BL
 
 import           Network.Wreq
 import           Control.Lens         hiding ((.=))
@@ -35,18 +37,20 @@ data Params = Params {
     _serverPort :: Int,
     _thisAddress :: T.Text,
     _thisPort :: Int,
-    _roomName :: T.Text
+    _roomName :: T.Text,
+    _botName :: T.Text
 } deriving (Show)
 
 instance Default Params where
     def = Params {
         _hipchatToken = "",
         _hipchatAddress = "",
-        _serverAddress = "127.0.0.1",
-        _serverPort = 9090,
+        _serverAddress = "0.0.0.0",
+        _serverPort = 0,
         _thisAddress = "",
-        _thisPort = 8080,
-        _roomName = ""
+        _thisPort = 0,
+        _roomName = "",
+        _botName = ""
     }
 
 makeLenses ''Params
@@ -61,6 +65,8 @@ main = do
 
     --parse args here, returning error if something not properly set
     let eParams = runParamExtractor argMap $ do
+
+         bn <- getMaybeDef ["bot-name", "bn"] "@james"
 
          ha <- getMaybe "must provide a hipchat server address using --hipchat or -h" ["hipchat", "h"]
          ht <- getMaybe "must provide a hipchat auth token with --token or -t" ["token", "t"]
@@ -129,7 +135,7 @@ chatloop :: Params -> [Int] -> Options -> IO ()
 chatloop params roomIds authParam = do
 
     let hipchatAddyStr = T.unpack (params^.hipchatAddress)
-    let thisUrl = (params^.thisAddress) `mappend` (T.pack $ show (params^.thisPort))
+    let thisUrl = "http://" `mappend` (params^.thisAddress) `mappend` ":" `mappend` (T.pack $ show (params^.thisPort))
 
     let serverAddressStr = T.unpack (params^.serverAddress)
     let serverPortNum = params^.serverPort
@@ -165,37 +171,61 @@ chatloop params roomIds authParam = do
     --kick off a web server to listen for messages. when they arrive, find
     --the mvar with matching room ID so that we target the correct socket connection,
     --and send to the backend. This ensures that responses will go back to the right room.
+    webhookIds <- newMVar []
     forkIO $ W.scotty (params^.thisPort) $ do
+
+        let doParse b = do
+
+             liftIO $ BL.putStrLn $ "Data received: " `mappend` b 
+             
+             let roomId = b ^?! key "item" . key "room" . key "id" . _Integral
+             let clientMsg = ClientMessage {
+                 cName = "@" `mappend` (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
+                 cMessage = b ^?! key "item" . key "message" . key "message" . _String
+             }
+ 
+             liftIO $ case lookup roomId roomLinks of
+                 Just mv -> do
+                     T.putStrLn $ (cName clientMsg) `mappend` " says: " `mappend` (cMessage clientMsg)
+                     putMVar mv clientMsg
+                 Nothing -> putStrLn $ "room ID "++(show roomId)++" is unknown to me"
+ 
+             W.text "Thanks!"
+
         W.post "/message" $ do
             b <- W.body
+            let thisHookId = b ^?! key "webhook_id" . _Integral
 
-            let roomId = b ^?! key "room" . key "id" . _Integral
-            let clientMsg = ClientMessage {
-                cName = b ^?! key "item" . key "from" . key "mention_name" . _String,
-                cMessage = b ^?! key "item" . key "message" . key "message" . _String
-            }
+            --ignore data sent to webhooks we didnt register just now:
+            validHooks <- liftIO $ readMVar webhookIds
+            if any (== thisHookId) validHooks then doParse b else W.text "Ignoring"
 
-            liftIO $ case lookup roomId roomLinks of
-                Just mv -> do
-                    T.putStrLn $ "read from hipchat: " `mappend` (cName clientMsg)
-                    putMVar mv clientMsg
-                Nothing -> putStrLn $ "room ID "++(show roomId)++" is unknown to me"
+        W.matchAny "/" $ W.text "Lark"
 
-            W.json ()  
 
     --register webhook to receive messages for each room we are in
     --this will start data flowing to the web server above, which will in
     --turn start pushing data into mvars to be sent to our bot server
     forM_ roomIds $ \id -> do
-        postWith authParam (hipchatAddyStr++"/v2/room/"++(show id)++"/webhook") $
+        let whUrl = hipchatAddyStr++"/v2/room/"++(show id)++"/webhook"
+        let whThis = thisUrl `mappend` "/message"
+        r <- postWith authParam whUrl $
             toJSON $ object [
-                "url" .= (thisUrl `mappend` "/message"),
+                "url" .= whThis,
+                "pattern" .= (".*" :: T.Text),
                 "event" .= ("room_message" :: T.Text),
                 "name" .= ("messagehook" :: T.Text)
             ]
 
+        case (r ^? responseBody . key "id" . _Integral) of
+            Just id -> do
+                hookIds <- takeMVar webhookIds
+                putMVar webhookIds (id:hookIds) 
+            Nothing -> BL.putStrLn $ "Webhook id can't be obtained from: " `mappend` (r^.responseBody)
 
-
+    --prevent exit of thread
+    let exitLoop = getLine >> exitLoop
+    exitLoop
 
 
 

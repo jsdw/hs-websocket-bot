@@ -33,7 +33,4 @@ buildRules = do
         print "{} said hi\n" (Only name)
         writeMessage $ format "Hi {}" (Only name)
 
-    addResponse EveryTime $ do
-        writeMessage "pong!"
-
     return ()
