@@ -13,6 +13,7 @@ import           Control.Monad        (forever, forM_, forM)
 import           System.Environment   (getArgs)
 import           Text.Read            (readMaybe)
 import qualified Data.Map             as M
+import           Data.Monoid          ((<>))
 import           Data.List            (lookup,any)
 import           Data.Aeson           ((.=),object,encode,decode,toJSON)
 import qualified System.IO            as IO
@@ -101,7 +102,7 @@ main = do
     --print error if we end up with one after extracting params, else
     --pass params to next stage
     case eParams of
-        Left err -> putStrLn $ "Error: "++err
+        Left err -> putStrLn $ "Error: " <> err
         Right p -> getRooms p
 
 
@@ -112,7 +113,7 @@ getRooms params = do
     let authParam = defaults & param "auth_token" .~ [params^.hipchatToken]
                              & header "Content-Type" .~ ["application/json"]
 
-    roomResp <- getWith authParam $ T.unpack (params^.hipchatAddress) ++ "/v2/room"
+    roomResp <- getWith authParam $ T.unpack (params^.hipchatAddress) <> "/v2/room"
     let rs = roomResp ^.. responseBody 
                         . key "items" 
                         . _Array 
@@ -124,11 +125,11 @@ getRooms params = do
          "" -> rs ^.. traverse . _1
          str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
 
-    putStrLn $ "listening in room IDs: " ++ show roomIds
+    putStrLn $ "listening in room IDs: " <> show roomIds
 
     --run the chat loop with the room ids found
     case roomIds of
-        [] -> T.putStrLn $ "room provided is not known: " `mappend` (params^.roomName)
+        [] -> T.putStrLn $ "room provided is not known: " <> (params^.roomName)
         _  -> chatloop params roomIds authParam
 
 
@@ -136,7 +137,7 @@ chatloop :: Params -> [Int] -> Options -> IO ()
 chatloop params roomIds authParam = do
 
     let hipchatAddyStr = T.unpack (params^.hipchatAddress)
-    let thisUrl = "http://" `mappend` (params^.thisAddress) `mappend` ":" `mappend` (T.pack $ show (params^.thisPort))
+    let thisUrl = "http://" <> (params^.thisAddress) <> ":" <> (T.pack $ show (params^.thisPort))
 
     let serverAddressStr = T.unpack (params^.serverAddress)
     let serverPortNum = params^.serverPort
@@ -148,7 +149,7 @@ chatloop params roomIds authParam = do
         mv <- newEmptyMVar
         forkIO $ WS.runClient serverAddressStr serverPortNum "/" $ \conn -> do
 
-            let addy = hipchatAddyStr++"/v2/room/"++(show id)++"/message"
+            let addy = hipchatAddyStr <> "/v2/room/" <> (show id) <> "/message"
             let postMessage text = do
                  postWith authParam addy $ toJSON $ object ["message" .= text]
                  return ()
@@ -158,7 +159,7 @@ chatloop params roomIds authParam = do
                 resp <- WS.receiveData conn
                 liftIO $ case (decode resp :: Maybe ServerMessage) of
                     Just message -> do
-                        T.putStrLn $ "sending from bot: " `mappend` (sMessage message)
+                        T.putStrLn $ "sending from bot: " <> (sMessage message)
                         postMessage $ sMessage message
                     Nothing -> T.putStrLn "Odd json from server!"
 
@@ -178,7 +179,7 @@ chatloop params roomIds authParam = do
          putStrLn "Received kill signal, removing webhooks"
          ids <- takeMVar webhookIds
          forM_ ids $ \(roomId,hookId) -> do
-            deleteWith authParam (hipchatAddyStr++"/v2/room/"++(show roomId)++"/webhook/"++(show hookId))
+            deleteWith authParam (hipchatAddyStr <> "/v2/room/" <> (show roomId) <> "/webhook/" <> (show hookId))
          putMVar done ()
 
     installHandler sigINT (Catch $ cleanUp) Nothing
@@ -191,19 +192,19 @@ chatloop params roomIds authParam = do
 
         let doParse b = do
 
-             liftIO $ BL.putStrLn $ "Data received: " `mappend` b 
+             liftIO $ BL.putStrLn $ "Data received: " <> b 
              
              let roomId = b ^?! key "item" . key "room" . key "id" . _Integral
              let clientMsg = ClientMessage {
-                 cName = "@" `mappend` (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
+                 cName = "@" <> (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
                  cMessage = b ^?! key "item" . key "message" . key "message" . _String
              }
  
              liftIO $ case lookup roomId roomLinks of
                  Just mv -> do
-                     T.putStrLn $ (cName clientMsg) `mappend` " says: " `mappend` (cMessage clientMsg)
+                     T.putStrLn $ (cName clientMsg) <> " says: " <> (cMessage clientMsg)
                      putMVar mv clientMsg
-                 Nothing -> putStrLn $ "room ID "++(show roomId)++" is unknown to me"
+                 Nothing -> putStrLn $ "room ID " <> (show roomId) <> " is unknown to me"
  
              W.text "Thanks!"
 
@@ -222,11 +223,10 @@ chatloop params roomIds authParam = do
     --this will start data flowing to the web server above, which will in
     --turn start pushing data into mvars to be sent to our bot server
     forM_ roomIds $ \roomId -> do
-        let whUrl = hipchatAddyStr++"/v2/room/"++(show roomId)++"/webhook"
-        let whThis = thisUrl `mappend` "/message"
+        let whUrl = hipchatAddyStr <> "/v2/room/" <> (show roomId) <> "/webhook"
         r <- postWith authParam whUrl $
             toJSON $ object [
-                "url" .= whThis,
+                "url" .= (thisUrl <> "/message"),
                 "pattern" .= (".*" :: T.Text),
                 "event" .= ("room_message" :: T.Text),
                 "name" .= ("messagehook" :: T.Text)
@@ -236,7 +236,7 @@ chatloop params roomIds authParam = do
             Just hookId -> do
                 hookIds <- takeMVar webhookIds
                 putMVar webhookIds ((roomId,hookId):hookIds) 
-            Nothing -> BL.putStrLn $ "Webhook id can't be obtained from: " `mappend` (r^.responseBody)
+            Nothing -> BL.putStrLn $ "Webhook id can't be obtained from: " <> (r^.responseBody)
 
     --prevent exit of thread until "done"
     readMVar done
