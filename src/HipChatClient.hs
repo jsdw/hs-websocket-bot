@@ -16,6 +16,7 @@ import qualified Data.Map             as M
 import           Data.List            (lookup,any)
 import           Data.Aeson           ((.=),object,encode,decode,toJSON)
 import qualified System.IO            as IO
+import           System.Posix.Signals (installHandler, Handler(Catch), sigINT, sigTERM)
 
 import qualified Data.ByteString.Lazy.Char8  as BL
 
@@ -168,10 +169,24 @@ chatloop params roomIds authParam = do
 
         return (id,mv)
 
+    --store IDs of webhooks we create so we can filter on them and
+    --clean them up on finish:
+    webhookIds <- newMVar [] :: IO (MVar [(Int,Int)])
+    done <- newEmptyMVar
+
+    let cleanUp = do
+         putStrLn "Received kill signal, removing webhooks"
+         ids <- takeMVar webhookIds
+         forM_ ids $ \(roomId,hookId) -> do
+            deleteWith authParam (hipchatAddyStr++"/v2/room/"++(show roomId)++"/webhook/"++(show hookId))
+         putMVar done ()
+
+    installHandler sigINT (Catch $ cleanUp) Nothing
+    installHandler sigTERM (Catch $ cleanUp) Nothing
+
     --kick off a web server to listen for messages. when they arrive, find
     --the mvar with matching room ID so that we target the correct socket connection,
     --and send to the backend. This ensures that responses will go back to the right room.
-    webhookIds <- newMVar []
     forkIO $ W.scotty (params^.thisPort) $ do
 
         let doParse b = do
@@ -198,7 +213,7 @@ chatloop params roomIds authParam = do
 
             --ignore data sent to webhooks we didnt register just now:
             validHooks <- liftIO $ readMVar webhookIds
-            if any (== thisHookId) validHooks then doParse b else W.text "Ignoring"
+            if any (\a -> snd a == thisHookId) validHooks then doParse b else W.text "Ignoring"
 
         W.matchAny "/" $ W.text "Lark"
 
@@ -206,8 +221,8 @@ chatloop params roomIds authParam = do
     --register webhook to receive messages for each room we are in
     --this will start data flowing to the web server above, which will in
     --turn start pushing data into mvars to be sent to our bot server
-    forM_ roomIds $ \id -> do
-        let whUrl = hipchatAddyStr++"/v2/room/"++(show id)++"/webhook"
+    forM_ roomIds $ \roomId -> do
+        let whUrl = hipchatAddyStr++"/v2/room/"++(show roomId)++"/webhook"
         let whThis = thisUrl `mappend` "/message"
         r <- postWith authParam whUrl $
             toJSON $ object [
@@ -218,15 +233,14 @@ chatloop params roomIds authParam = do
             ]
 
         case (r ^? responseBody . key "id" . _Integral) of
-            Just id -> do
+            Just hookId -> do
                 hookIds <- takeMVar webhookIds
-                putMVar webhookIds (id:hookIds) 
+                putMVar webhookIds ((roomId,hookId):hookIds) 
             Nothing -> BL.putStrLn $ "Webhook id can't be obtained from: " `mappend` (r^.responseBody)
 
-    --prevent exit of thread
-    let exitLoop = getLine >> exitLoop
-    exitLoop
-
+    --prevent exit of thread until "done"
+    readMVar done
+    return ()
 
 
 

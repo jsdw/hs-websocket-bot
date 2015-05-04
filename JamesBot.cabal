@@ -67,6 +67,7 @@ executable hipchatclient
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
                        mtl == 2.2.*,
+                       unix >= 2.7 && < 3.0,
                        network == 2.6.0.*,
                        containers == 0.5.6.*,
                        aeson == 0.8.0.*,
