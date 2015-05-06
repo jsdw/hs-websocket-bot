@@ -50,11 +50,11 @@ main = do
 
     --parse port number from args
     let (Just port) = (maybeP >>= readMaybe :: Maybe Int) <|> Just 9090
-          where maybeP = M.lookup "port" argMap <|> M.lookup "p" argMap
+            where maybeP = M.lookup "port" argMap <|> M.lookup "p" argMap
 
     --parse address from args
     let (Just address) =
-          M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
+            M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
 
     --this runs our app:
     let runApp = withSocketsDo $ WS.runClient address port "/" application >> return ()

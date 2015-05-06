@@ -68,36 +68,36 @@ main = do
     --parse args here, returning error if something not properly set
     let eParams = runParamExtractor argMap $ do
 
-         bn <- getMaybeDef ["bot-name", "bn"] "@james"
-
-         ha <- getMaybe "must provide a hipchat server address using --hipchat or -h" ["hipchat", "h"]
-         ht <- getMaybe "must provide a hipchat auth token with --token or -t" ["token", "t"]
-
-         setParam hipchatAddress (T.pack ha)
-         setParam hipchatToken (T.pack ht)
-
-         sa <- getMaybeDef ["server-address", "sa"] "127.0.0.1"
-         sp <- getMaybeDef ["server-port", "sp"] "9090"
-
-         let serverPortInt = readMaybe sp
-         case serverPortInt of
-            Nothing -> throwError "server port not a valid int"
-            Just p -> setParam serverPort p
-
-         setParam serverAddress (T.pack sa)
-         
-         ta <- getMaybe "must provide this address --this-address or -ta" ["this-address", "ta"]
-         tp <- getMaybe "must provide this port --this-port or -tp" ["this-port", "tp"]
-
-         let thisPortInt = readMaybe tp
-         case thisPortInt of
-            Nothing -> throwError "this port not a valid int"
-            Just p -> setParam thisPort p
-
-         rn <- getMaybe "must provide a room name with --room or -r" ["room", "r"]
-
-         setParam thisAddress (T.pack ta)
-         setParam roomName (T.pack rn)
+            bn <- getMaybeDef ["bot-name", "bn"] "@james"
+   
+            ha <- getMaybe "must provide a hipchat server address using --hipchat or -h" ["hipchat", "h"]
+            ht <- getMaybe "must provide a hipchat auth token with --token or -t" ["token", "t"]
+   
+            setParam hipchatAddress (T.pack ha)
+            setParam hipchatToken (T.pack ht)
+   
+            sa <- getMaybeDef ["server-address", "sa"] "127.0.0.1"
+            sp <- getMaybeDef ["server-port", "sp"] "9090"
+   
+            let serverPortInt = readMaybe sp
+            case serverPortInt of
+                Nothing -> throwError "server port not a valid int"
+                Just p -> setParam serverPort p
+   
+            setParam serverAddress (T.pack sa)
+            
+            ta <- getMaybe "must provide this address --this-address or -ta" ["this-address", "ta"]
+            tp <- getMaybe "must provide this port --this-port or -tp" ["this-port", "tp"]
+   
+            let thisPortInt = readMaybe tp
+            case thisPortInt of
+               Nothing -> throwError "this port not a valid int"
+               Just p -> setParam thisPort p
+   
+            rn <- getMaybe "must provide a room name with --room or -r" ["room", "r"]
+   
+            setParam thisAddress (T.pack ta)
+            setParam roomName (T.pack rn)
 
     --print error if we end up with one after extracting params, else
     --pass params to next stage
@@ -122,8 +122,8 @@ getRooms params = do
 
     --get list of all roomIds if no room provided, else look for room provided and return that.
     let roomIds = case params^.roomName of
-         "" -> rs ^.. traverse . _1
-         str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
+            "" -> rs ^.. traverse . _1
+            str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
 
     putStrLn $ "listening in room IDs: " <> show roomIds
 
@@ -137,10 +137,9 @@ chatloop :: Params -> [Int] -> Options -> IO ()
 chatloop params roomIds authParam = do
 
     let hipchatAddyStr = T.unpack (params^.hipchatAddress)
-    let thisUrl = "http://" <> (params^.thisAddress) <> ":" <> (T.pack $ show (params^.thisPort))
-
-    let serverAddressStr = T.unpack (params^.serverAddress)
-    let serverPortNum = params^.serverPort
+        thisUrl = "http://" <> (params^.thisAddress) <> ":" <> (T.pack $ show (params^.thisPort))
+        serverAddressStr = T.unpack (params^.serverAddress)
+        serverPortNum = params^.serverPort
 
     --create a socket connection per room. leave each socket on a loop
     --messages get from hipchat to server by being put in an mvar. messages
@@ -150,9 +149,9 @@ chatloop params roomIds authParam = do
         forkIO $ WS.runClient serverAddressStr serverPortNum "/" $ \conn -> do
 
             let addy = hipchatAddyStr <> "/v2/room/" <> (show id) <> "/message"
-            let postMessage text = do
-                 postWith authParam addy $ toJSON $ object ["message" .= text]
-                 return ()
+                postMessage text = do
+                    postWith authParam addy $ toJSON $ object ["message" .= text]
+                    return ()
 
             --fork a thread to write responses to hipchat from the server
             liftIO $ forkIO $ forever $ do
@@ -176,11 +175,11 @@ chatloop params roomIds authParam = do
     done <- newEmptyMVar
 
     let cleanUp = do
-         putStrLn "Received kill signal, removing webhooks"
-         ids <- takeMVar webhookIds
-         forM_ ids $ \(roomId,hookId) -> do
-            deleteWith authParam (hipchatAddyStr <> "/v2/room/" <> (show roomId) <> "/webhook/" <> (show hookId))
-         putMVar done ()
+            putStrLn "Received kill signal, removing webhooks"
+            ids <- takeMVar webhookIds
+            forM_ ids $ \(roomId,hookId) -> do
+                deleteWith authParam (hipchatAddyStr <> "/v2/room/" <> (show roomId) <> "/webhook/" <> (show hookId))
+            putMVar done ()
 
     installHandler sigINT (Catch $ cleanUp) Nothing
     installHandler sigTERM (Catch $ cleanUp) Nothing
@@ -192,21 +191,21 @@ chatloop params roomIds authParam = do
 
         let doParse b = do
 
-             liftIO $ BL.putStrLn $ "Data received: " <> b 
-             
-             let roomId = b ^?! key "item" . key "room" . key "id" . _Integral
-             let clientMsg = ClientMessage {
-                 cName = "@" <> (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
-                 cMessage = b ^?! key "item" . key "message" . key "message" . _String
-             }
- 
-             liftIO $ case lookup roomId roomLinks of
-                 Just mv -> do
-                     T.putStrLn $ (cName clientMsg) <> " says: " <> (cMessage clientMsg)
-                     putMVar mv clientMsg
-                 Nothing -> putStrLn $ "room ID " <> (show roomId) <> " is unknown to me"
- 
-             W.text "Thanks!"
+                liftIO $ BL.putStrLn $ "Data received: " <> b 
+                
+                let roomId = b ^?! key "item" . key "room" . key "id" . _Integral
+                    clientMsg = ClientMessage {
+                        cName = "@" <> (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
+                        cMessage = b ^?! key "item" . key "message" . key "message" . _String
+                    }
+    
+                liftIO $ case lookup roomId roomLinks of
+                    Just mv -> do
+                        T.putStrLn $ (cName clientMsg) <> " says: " <> (cMessage clientMsg)
+                        putMVar mv clientMsg
+                    Nothing -> putStrLn $ "room ID " <> (show roomId) <> " is unknown to me"
+    
+                W.text "Thanks!"
 
         W.post "/message" $ do
             b <- W.body

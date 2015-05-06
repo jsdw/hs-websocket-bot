@@ -54,9 +54,9 @@ application botState botBrain pending = flip E.finally disconnect $ do
 
             Nothing -> B.putStrLn $ "Bad Input:: " `B.append` msg
 
-    where 
-        disconnect = liftIO $ putStrLn "Closing connection"
-        writeResponse conn m = WS.sendTextData conn $ encode (def { sMessage = m } :: ServerMessage)
+  where 
+    disconnect = liftIO $ putStrLn "Closing connection"
+    writeResponse conn m = WS.sendTextData conn $ encode (def { sMessage = m } :: ServerMessage)
 
 --
 -- Our entry point
@@ -68,6 +68,7 @@ main = do
 
     --bot state lives here
     state <- newMVar def :: IO BotState
+    
     --bot brain built up here
     let brain = runBrainBuilder buildRules
 
@@ -76,8 +77,7 @@ main = do
           where maybeP = M.lookup "port" argMap <|> M.lookup "p" argMap
 
     --parse address from args
-    let (Just address) =
-          M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
+    let (Just address) = M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
 
     putStrLn $ "port:    "++(show port)
     putStrLn $ "address: "++address
