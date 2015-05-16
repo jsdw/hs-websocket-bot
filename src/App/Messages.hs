@@ -16,29 +16,41 @@ import           Data.Default        (def,Default)
 -- message sent to the server from the client
 data ClientMessage = ClientMessage {
     cName :: Text,
-    cMessage :: Text    
+    cRoom :: Text,
+    cMessage :: Text   
 } deriving (Show)
 
 instance FromJSON ClientMessage where
-    parseJSON (Object v) = ClientMessage <$> v .: "name" <*> v .: "message"
+    parseJSON (Object v) = ClientMessage 
+        <$> v .: "name" 
+        <*> v .: "room" 
+        <*> v .: "message"
     parseJSON _ = mzero
 
 instance ToJSON ClientMessage where
-    toJSON (ClientMessage name msg) = object ["name" .= name, "message" .= msg]
+    toJSON (ClientMessage name room msg) = object [
+            "name" .= name, 
+            "message" .= msg,
+            "room" .= room
+        ]
 
 
 -- message sent from the server to a client
 data ServerMessage = ServerMessage {
-    sMessage :: Text
+    sMessage :: Text,
+    sRoom :: Text
 } deriving (Show)
 
 instance FromJSON ServerMessage where
-    parseJSON (Object v) = ServerMessage <$> v .: "message"
+    parseJSON (Object v) = ServerMessage 
+        <$> v .: "message"
+        <*> v .: "room"
     parseJSON _ = mzero
 
 instance ToJSON ServerMessage where
-    toJSON (ServerMessage msg) = object ["message" .= msg]
+    toJSON (ServerMessage msg room) = object [
+            "message" .= msg,
+            "room" .= room
+        ]
 
-instance Default ServerMessage where
-    def = ServerMessage ""
 

@@ -56,7 +56,6 @@ application botState botBrain pending = flip E.finally disconnect $ do
 
   where 
     disconnect = liftIO $ putStrLn "Closing connection"
-    writeResponse conn m = WS.sendTextData conn $ encode (def { sMessage = m } :: ServerMessage)
 
 --
 -- Our entry point

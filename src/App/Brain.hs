@@ -110,7 +110,8 @@ runBrainActionBuilder actionScript initialActionState = execStateT actionScript 
 writeMessage :: T.Text -> BotBrainActionBuilder ()
 writeMessage m = do
     state <- get
-    let jsonResp = encode (def { sMessage = m } :: ServerMessage)
+    let room = cRoom $ actionMessage state
+    let jsonResp = encode (ServerMessage { sMessage = m, sRoom = room })
     liftIO $ WS.sendTextData (actionConn state) jsonResp
 
 getMessage :: BotBrainActionBuilder T.Text
@@ -141,6 +142,7 @@ generateResponse m botState botBrain conn =
             actionState = botState
         }
 
+        responseLoop st [] = return ()
         responseLoop st (rule:rs) = do
 
             --work out whether to continue by running
@@ -157,7 +159,7 @@ generateResponse m botState botBrain conn =
             --action provided with it.
             if not bContinue
                 then responseLoop st rs
-                else runBrainActionBuilder (snd rule) st
+                else runBrainActionBuilder (snd rule) st >> return ()
 
     in do 
         --increment the message seen count
