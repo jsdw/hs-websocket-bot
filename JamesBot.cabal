@@ -17,8 +17,9 @@ cabal-version:       >=1.10
 
 executable server
   main-is:             Server.hs
-  -- other-modules:       
-  -- other-extensions:    
+  default-extensions:  OverloadedStrings,
+                       ScopedTypeVariables,
+                       TemplateHaskell    
   build-depends:       base >=4.8 && <4.9, 
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
@@ -42,11 +43,13 @@ executable server
 
 executable client
   main-is:             Client.hs
-  -- other-modules:       
-  -- other-extensions:    
+  default-extensions:  OverloadedStrings,
+                       ScopedTypeVariables,
+                       TemplateHaskell    
   build-depends:       base >=4.8 && <4.9, 
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
+                       text-format == 0.3.1.*,
                        mtl == 2.2.*,
                        network == 2.6.0.*,
                        containers == 0.5.6.*,
@@ -61,11 +64,13 @@ executable client
 
 executable hipchatclient
   main-is:             HipChatClient.hs
-  -- other-modules:       
-  -- other-extensions:    
+  default-extensions:  OverloadedStrings,
+                       ScopedTypeVariables,
+                       TemplateHaskell    
   build-depends:       base >=4.8 && <4.9, 
                        websockets == 0.9.3.*, 
                        text == 1.2.*, 
+                       text-format == 0.3.1.*,
                        mtl == 2.2.*,
                        unix >= 2.7 && < 3.0,
                        network == 2.6.0.*,

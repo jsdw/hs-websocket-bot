@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import           Prelude                    hiding (print)
+
 import qualified Network.WebSockets         as WS
 import           Network.Socket             (withSocketsDo) --only really necessary for windows
 import           Data.Text                  (Text)
@@ -12,6 +14,7 @@ import           Control.Monad.Trans        (liftIO)
 import           Control.Monad              (forever,mzero)
 import           Control.Applicative        ((<|>),(<$>),(<*>))
 import qualified Control.Exception          as E
+import           Control.Lens
 import           System.Environment         (getArgs)
 import qualified Data.Map                   as M            
 import           Text.Read                  (readMaybe)
@@ -24,6 +27,7 @@ import           App.Args
 import           App.Messages
 import           App.Brain
 import           App.Rules
+import           App.Format
 
 
 --
@@ -35,6 +39,7 @@ application botState botBrain pending = flip E.finally disconnect $ do
 
     liftIO $ putStrLn "Connection established"
     conn <- WS.acceptRequest pending
+    WS.forkPingThread conn 30
 
     forever $ do 
         msg <- WS.receiveData conn
@@ -42,26 +47,23 @@ application botState botBrain pending = flip E.finally disconnect $ do
         let m = decode msg :: Maybe ClientMessage
         case m of
             Just message -> do
-                liftIO $ T.putStrLn $ "In:: " 
-                           `T.append` (cName message) 
-                           `T.append` ": " 
-                           `T.append` (cMessage message)
+
+                printLn "message from {} ({}): {}" (message^.cName, message^.cRoom, message^.cMessage)
 
                 --fork a new thread so that we don't block
                 --this loop if we want timers etc
                 liftIO $ forkIO $ generateResponse message botState botBrain conn
                 return ()
 
-            Nothing -> B.putStrLn $ "Bad Input:: " `B.append` msg
+            Nothing -> printLn "bad input: {}" (Only msg)
 
   where 
-    disconnect = liftIO $ putStrLn "Closing connection"
+    disconnect = printLn "Closing connection" ()
 
 --
 -- Our entry point
 --
 main = do
-    putStrLn "Starting Websocket Bot Server"
 
     argMap <- fmap parseKeys getArgs
 
@@ -78,7 +80,9 @@ main = do
     --parse address from args
     let (Just address) = M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
 
-    putStrLn $ "port:    "++(show port)
-    putStrLn $ "address: "++address
+    printLn "Starting server" ()
+    printLn "===============" ()
+    printLn "Port:    {}" (Only port)
+    printLn "Address: {}" (Only address)
 
     withSocketsDo $ WS.runServer address port $ application state brain

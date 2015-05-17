@@ -30,7 +30,6 @@ buildRules = do
 
     addResponse (ParserRule $ string "hello" >> return ()) $ do
         name <- getName
-        print "{} said hi\n" (Only name)
         writeMessage $ format "Hi {}" (Only name)
 
     return ()

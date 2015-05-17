@@ -1,5 +1,12 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables, PartialTypeSignatures, TemplateHaskell #-}
 
+--
+-- This app connects a single user account on hipchat with the bot, so
+-- the bot speaks on hipchat as if they are the user. Handy for testing.
+-- look at my more recent hs-hipchat-to-websocket package for a better approach.
+--
+
+import           Prelude              hiding (print)
 import qualified Network.WebSockets   as WS
 import           Network.Socket       (withSocketsDo) --only really necessary for windows
 import           Data.Text            (Text)
@@ -10,6 +17,7 @@ import           Control.Concurrent
 import           Control.Applicative  ((<|>),(<$>),(<*>))
 import           Control.Monad.Trans  (liftIO)
 import           Control.Monad        (forever, forM_, forM)
+import qualified Control.Exception    as E
 import           System.Environment   (getArgs)
 import           Text.Read            (readMaybe)
 import qualified Data.Map             as M
@@ -28,9 +36,10 @@ import qualified Web.Scotty           as W;
 
 import           App.Args
 import           App.Messages
+import           App.Format
 
 --
--- lensy param struct
+-- lensy param struct for top level args
 --
 data Params = Params {
     _hipchatToken :: T.Text,
@@ -61,7 +70,7 @@ makeLenses ''Params
 main :: IO ()
 main = do
     IO.hSetBuffering IO.stdout IO.NoBuffering
-    putStrLn "Starting Client"
+    printLn "Starting Client" ()
 
     argMap <- fmap parseKeys getArgs
 
@@ -102,7 +111,7 @@ main = do
     --print error if we end up with one after extracting params, else
     --pass params to next stage
     case eParams of
-        Left err -> putStrLn $ "Error: " <> err
+        Left err -> printLn "Error: {}" (Only err)
         Right p -> getRooms p
 
 
@@ -125,11 +134,11 @@ getRooms params = do
             "" -> rs ^.. traverse . _1
             str -> rs ^.. traverse . filtered (\a -> snd a == str) . _1
 
-    putStrLn $ "listening in room IDs: " <> show roomIds
+    printLn "listening in room IDs: {}" (Only $ show roomIds)
 
     --run the chat loop with the room ids found
     case roomIds of
-        [] -> T.putStrLn $ "room provided is not known: " <> (params^.roomName)
+        [] -> printLn "don't know about room '{}'" (Only $ params^.roomName)
         _  -> chatloop params roomIds authParam
 
 
@@ -149,18 +158,22 @@ chatloop params roomIds authParam = do
         forkIO $ WS.runClient serverAddressStr serverPortNum "/" $ \conn -> do
 
             let addy = hipchatAddyStr <> "/v2/room/" <> (show id) <> "/message"
-                postMessage text = do
-                    postWith authParam addy $ toJSON $ object ["message" .= text]
-                    return ()
+                postMessage text =
+                    -- for some reason hipchat doesnt respond so fork it and catch
+                    -- the timeout...
+                    let fireAndForget = forkIO $ flip E.catch ((\(e :: E.SomeException) -> return ())) $ do
+                            postWith authParam addy $ toJSON $ object ["message" .= text]
+                            return ()
+                    in fireAndForget >> return ()
 
             --fork a thread to write responses to hipchat from the server
             liftIO $ forkIO $ forever $ do
                 resp <- WS.receiveData conn
                 liftIO $ case (decode resp :: Maybe ServerMessage) of
                     Just message -> do
-                        T.putStrLn $ "sending from bot: " <> (sMessage message)
-                        postMessage $ sMessage message
-                    Nothing -> T.putStrLn "Odd json from server!"
+                        printLn "@JamesBot: {}" (Only $ message^.sMessage)
+                        postMessage $ message^.sMessage
+                    Nothing -> printLn "Odd json from server: {}" (Only resp)
 
             --if the mvar gets filled with a ClientMessage, send to server
             forever $ do
@@ -175,8 +188,8 @@ chatloop params roomIds authParam = do
     done <- newEmptyMVar
 
     let cleanUp = do
-            putStrLn "Received kill signal, removing webhooks"
             ids <- takeMVar webhookIds
+            printLn "Received kill signal, removing webhook IDs {}" (Only $ show $ ids ^.. traverse . _2)
             forM_ ids $ \(roomId,hookId) -> do
                 deleteWith authParam (hipchatAddyStr <> "/v2/room/" <> (show roomId) <> "/webhook/" <> (show hookId))
             putMVar done ()
@@ -190,20 +203,18 @@ chatloop params roomIds authParam = do
     forkIO $ W.scotty (params^.thisPort) $ do
 
         let doParse b = do
-
-                liftIO $ BL.putStrLn $ "Data received: " <> b 
                 
                 let roomId = b ^?! key "item" . key "room" . key "id" . _Integral
-                    clientMsg = ClientMessage {
-                        cName = "@" <> (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String),
-                        cMessage = b ^?! key "item" . key "message" . key "message" . _String
-                    }
+                    cmsg = def 
+                        & cName .~ ("@" <> (b ^?! key "item" . key "message" . key "from" . key "mention_name" . _String))
+                        & cMessage .~ (b ^?! key "item" . key "message" . key "message" . _String)
+                        & cRoom .~ (b ^?! key "item" . key "room" . key "name" . _String)
     
-                liftIO $ case lookup roomId roomLinks of
+                case lookup roomId roomLinks of
                     Just mv -> do
-                        T.putStrLn $ (cName clientMsg) <> " says: " <> (cMessage clientMsg)
-                        putMVar mv clientMsg
-                    Nothing -> putStrLn $ "room ID " <> (show roomId) <> " is unknown to me"
+                        printLn "{} ({}): {}" (cmsg^.cName, cmsg^.cRoom, cmsg^.cMessage)
+                        liftIO $ putMVar mv cmsg
+                    Nothing -> printLn "room ID {} unknown to me" (Only roomId)
     
                 W.text "Thanks!"
 

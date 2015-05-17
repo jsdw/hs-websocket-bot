@@ -1,5 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
-
+import           Prelude             hiding (print)
 import qualified Network.WebSockets  as WS
 import           Network.Socket      (withSocketsDo) --only really necessary for windows
 import           Data.Text           (Text)
@@ -15,12 +14,14 @@ import           Text.Read           (readMaybe)
 import qualified Data.Map            as M
 import           Data.Aeson          ((.=),object,encode,decode)
 import qualified System.IO           as IO
+import           Control.Lens         hiding ((.=))
 
 import           App.Args
 import           App.Messages
+import           App.Format
 
-botPrefix =  " Bot> "
-userPrefix = "User> "
+botPrefix =  " Bot> " :: T.Text
+userPrefix = "User> " :: T.Text
 
 application conn = do
 
@@ -28,23 +29,22 @@ application conn = do
     liftIO $ forkIO $ forever $ do
         resp <- WS.receiveData conn
         let maybeMess = decode resp :: Maybe ServerMessage
-        T.putStrLn ""
+        printLn "" ()
         case maybeMess of
-            Just message -> T.putStrLn $ botPrefix `T.append` sMessage message
-            Nothing -> do
-                T.putStrLn $ botPrefix `T.append` "what on earth was that?!"
-        T.putStr userPrefix
+            Just message -> printLn "{} {}" (botPrefix, message^.sMessage)
+            Nothing -> printLn "{} what on earth was that?!" (Only botPrefix) 
+        print "{}" (Only userPrefix)
 
     --send data to the bot in a continuous loop 
     forever $ do
-        T.putStr userPrefix
+        print "{}" (Only userPrefix)
         input <- getLine
-        WS.sendTextData conn $ encode $ ClientMessage "James" (T.pack input)
+        WS.sendTextData conn $ encode $ ClientMessage "James" "terminal" (T.pack input)
 
 
 main = do
     IO.hSetBuffering IO.stdout IO.NoBuffering
-    putStrLn "Starting Client"
+    printLn "Starting Client" ()
 
     argMap <- fmap parseKeys getArgs
 
@@ -56,8 +56,4 @@ main = do
     let (Just address) =
             M.lookup "address" argMap <|> M.lookup "a" argMap <|> Just "0.0.0.0"
 
-    --this runs our app:
-    let runApp = withSocketsDo $ WS.runClient address port "/" application >> return ()
-
-    --run our app
-    runApp
+    withSocketsDo $ WS.runClient address port "/" application >> return ()

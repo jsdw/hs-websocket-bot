@@ -2,10 +2,12 @@
 
 module App.Brain where
 
+import           Prelude               hiding (print)
 import qualified Network.WebSockets    as WS
 import           Data.Aeson  
 import           Control.Applicative   ((<$>),(<*>))
 import           Control.Monad         (mzero)
+import           Control.Lens
 import qualified Data.Text             as T
 import qualified Data.Text.IO          as T
 import           Data.Default          (def,Default)
@@ -17,6 +19,7 @@ import           Text.Regex.TDFA       ((=~))
 import           System.Random         (randomIO,Random(..))
 
 import           App.Messages
+import           App.Format
 
 --
 -- BOT STATE
@@ -110,18 +113,20 @@ runBrainActionBuilder actionScript initialActionState = execStateT actionScript 
 writeMessage :: T.Text -> BotBrainActionBuilder ()
 writeMessage m = do
     state <- get
-    let room = cRoom $ actionMessage state
-    let jsonResp = encode (ServerMessage { sMessage = m, sRoom = room })
-    liftIO $ WS.sendTextData (actionConn state) jsonResp
+    let room =(actionMessage state) ^. cRoom
+    let resp = def & sMessage .~ m
+                   & sRoom .~ room
+    printLn "@JamesBot: {}" (Only m)
+    liftIO $ WS.sendTextData (actionConn state) (encode resp)
 
 getMessage :: BotBrainActionBuilder T.Text
-getMessage = get >>= return . cMessage . actionMessage 
+getMessage = get >>= return . _cMessage . actionMessage 
 
 getCount :: BotBrainActionBuilder Int
 getCount = get >>= liftIO . readMVar . actionState >>= return . bsMessageCount
 
 getName :: BotBrainActionBuilder T.Text
-getName = get >>= return . cName . actionMessage 
+getName = get >>= return . _cName . actionMessage 
 
 random :: Random a => BotBrainActionBuilder a
 random = liftIO $ randomIO
@@ -148,11 +153,11 @@ generateResponse m botState botBrain conn =
             --work out whether to continue by running
             --the parse rule against the message
             let bContinue = case fst rule of
-                    ParserRule r -> case P.parseOnly r (cMessage m) of
+                    ParserRule r -> case P.parseOnly r (m^.cMessage) of
                         Left _  -> False
                         Right _ -> True
-                    RegexpRule s -> (T.unpack $ cMessage m) =~ s
-                    Exactly s -> s == (cMessage m)
+                    RegexpRule s -> (T.unpack $ m^.cMessage) =~ s
+                    Exactly s -> s == (m^.cMessage)
                     EveryTime -> True
 
             --either loop to the next rule or run the
