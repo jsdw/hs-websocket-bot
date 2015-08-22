@@ -8,8 +8,6 @@
 
 import           Prelude              hiding (print)
 import qualified Network.WebSockets   as WS
-import           Network.Socket       (withSocketsDo) --only really necessary for windows
-import           Data.Text            (Text)
 import qualified Data.Text            as T
 import qualified Data.Text.IO         as T
 import           Data.Default         (Default, def)
